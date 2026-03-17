@@ -1,0 +1,5 @@
+gymnasium
+highway-env
+torch
+matplotlib
+numpy
