@@ -3,3 +3,4 @@ highway-env
 torch
 matplotlib
 numpy
+"gymnasium[other]"
