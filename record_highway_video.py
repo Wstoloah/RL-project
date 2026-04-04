@@ -77,19 +77,23 @@ def main():
     import torch.nn as nn
     import torch.nn.functional as F
 
-    class DQN(nn.Module):
-        def __init__(self, n_obs, n_act, hidden):
+    class Net(nn.Module):
+        """3-layer MLP: obs -> hidden -> hidden -> n_actions."""
+
+        def __init__(self, n_obs: int, n_actions: int, hidden_size: int = 256):
             super().__init__()
-            self.layer1 = nn.Linear(n_obs, hidden)
-            self.layer2 = nn.Linear(hidden, hidden)
-            self.layer3 = nn.Linear(hidden, n_act)
+            self.net = nn.Sequential(
+                nn.Linear(n_obs, hidden_size),
+                nn.ReLU(),
+                nn.Linear(hidden_size, hidden_size),
+                nn.ReLU(),
+                nn.Linear(hidden_size, n_actions),
+            )
 
-        def forward(self, x):
-            x = F.relu(self.layer1(x))
-            x = F.relu(self.layer2(x))
-            return self.layer3(x)
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return self.net(x)
 
-    policy_net = DQN(n_observations, n_actions, hidden_size).to(device)
+    policy_net = Net(n_observations, n_actions, hidden_size).to(device)
     policy_net.load_state_dict(ckpt["policy_state_dict"])
     policy_net.eval()
 
