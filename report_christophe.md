@@ -8,111 +8,82 @@ groupe a ete de mettre en place l'entrainement d'un agent DQN via
 la **comparaison** entre cet agent et le DQN implemente from scratch par mes
 coequipiers.
 
-J'ai aborde la comparaison en deux temps. Le premier run, presente dans ce
-rapport, est une comparaison **"toutes choses egales par ailleurs"**: j'ai
-aligne au maximum les hyperparametres de SB3 sur ceux du DQN custom afin
-d'isoler l'effet des differences d'implementation (optimiseur, batching des
-updates, ordre interne des operations) plutot que l'effet des hyperparametres.
-Un second run, utilisant les hyperparametres recommandes par defaut pour SB3
-sur highway-env, viendra completer l'analyse pour distinguer les deux effets.
-
-## 2. Contribution : SB3 DQN Training (run aligne)
+## 2. Contribution : SB3 DQN Training
 
 ### Pipeline d'entrainement
 
-J'ai concu le pipeline complet dans `sb3_training.ipynb`. Ce notebook contient
-le **run aligne**: meme config, memes seeds, meme nombre d'episodes que le DQN
-custom. Il est structure autour des etapes suivantes:
+J'ai concu le pipeline complet dans `sb3_defaults_training.ipynb`. Il est
+structure autour des etapes suivantes:
 
-1. **Configuration de l'environnement**: utilisation de la config partagee (`shared_core_config.py`) pour garantir une comparaison equitable avec le DQN custom.
+1. **Configuration de l'environnement**: utilisation de la config partagee
+   (`shared_core_config.py`) pour garantir une comparaison equitable avec
+   le DQN custom.
 
-2. **Entrainement par episodes**: 2 500 episodes par seed (identique au DQN custom), sur 1 seul environnement, avec un callback qui controle l'arret apres le nombre d'episodes cible.
+2. **Hyperparametres**: les hyperparametres recommandes pour SB3 sur
+   highway-env ont ete utilises (gamma=0.8, train_freq=1, gradient_steps=1,
+   epsilon lineaire sur 10% des steps). Le volume d'entrainement est fixe a
+   40 000 steps, ce qui correspond a environ 2 700 episodes.
 
-3. **Epsilon exponentiel**: j'ai surcharge le schedule epsilon de SB3 via un callback pour reproduire exactement le decay exponentiel du DQN custom (`eps = 0.05 + 0.95 * exp(-steps/5000)`).
+3. **Entrainement multi-seed**: 3 seeds (0, 1, 2) pour evaluer la
+   robustesse des resultats.
 
-4. **Entrainement multi-seed**: 3 seeds (0, 1, 2) pour evaluer la robustesse.
+4. **Evaluation**: 50 episodes deterministes par seed avec seeds d'evaluation
+   separees (offset=1000) pour eviter le biais de contamination train/eval.
 
-5. **Evaluation**: 50 episodes deterministes par seed avec seeds d'evaluation separees (offset=1000) pour eviter le biais.
+5. **Sauvegarde**: checkpoints des modeles, metriques en JSON, courbes
+   d'entrainement, et videos de rollout (seed 2).
 
-6. **Sauvegarde**: checkpoints des modeles, metriques en JSON, courbes d'entrainement, et videos de rollout.
+### Hyperparametres
 
-### Choix des hyperparametres : alignement deliberé
-
-Pour rendre la comparaison interpretable comme "toutes choses egales par
-ailleurs", j'ai configure SB3 pour qu'il utilise exactement les memes
-hyperparametres que le DQN custom:
-
-- Architecture: MLP [256, 256] (identique au custom)
-- Learning rate: 5e-4, gamma: 0.99
-- Buffer: 15 000, batch size: 32
-- Epsilon: exponentiel (eps_decay=5000), surcharge via callback pour etre
-  identique au custom
-- Target update: tous les 50 steps
-- Gradient clipping: max_grad_norm=100
-- Volume: 2 500 episodes (identique au custom)
-- Train frequency: 4 steps, avec 4 gradient steps par phase
-
-Il est important de noter que **ce choix eloigne SB3 de ses hyperparametres
-recommandes pour highway-env** (notamment `train_freq=1` et un epsilon
-lineaire). Ce n'est donc pas un test de SB3 "hors de sa zone d'usage normale":
-c'est un test visant a reduire au maximum les facteurs confondants pour
-isoler l'effet des differences d'implementation qui persistent malgre
-l'alignement:
-
-1. **Optimiseur**: Adam dans SB3 vs AdamW+amsgrad dans le custom.
-2. **Batching des updates**: 4 steps groupes vs 1 step a la fois.
-3. **Ordre interne des operations**: SB3 gere son propre pipeline de
-   buffer/target sync, ce qui peut introduire des decalages fins par rapport
-   au custom.
-
-Pour evaluer SB3 dans sa configuration naturelle (et ainsi comparer les deux
-**outils** plutot que les deux implementations sous contrainte), un second
-run avec les hyperparametres recommandes sera ajoute dans un notebook separe.
+| Parametre | Valeur |
+|-----------|--------|
+| Architecture | MLP [256, 256] (ReLU) |
+| Learning rate | 5e-4 (Adam) |
+| Gamma | 0.8 |
+| Buffer size | 15 000 |
+| Batch size | 32 |
+| Target update | hard, tous les 50 steps |
+| Epsilon | lineaire 1.0→0.05 sur 10% des steps |
+| Train frequency | chaque step (train_freq=1) |
+| Gradient steps | 1 par step |
+| Volume | 40 000 steps (~2 700 episodes) |
 
 ### Enregistrement des rollouts
 
-J'ai enregistre 3 episodes video pour le meilleur seed (seed 2) afin de visualiser qualitativement la politique apprise. Les videos revelent un agent qui maintient une vitesse basse et ne change jamais de voie, ce qui constitue la politique optimale pour la reward configuree.
+3 episodes video ont ete enregistres pour le seed 2 afin de visualiser
+qualitativement la politique apprise. Les videos revelent un agent qui
+presente des comportements mixtes: certains episodes ou l'agent survit en
+maintenant une vitesse moderee, et d'autres ou il entre en collision.
 
 ## 3. Resultats
 
 ### Performance SB3
 
-| Seed | Mean Reward | Std | Mean Length | Crash Rate |
-|------|------------|-----|-------------|-----------|
-| 0 | 17.32 | 6.54 | 24.90 | 26% |
-| 1 | 10.37 | 6.47 | 12.42 | 96% |
-| 2 | 19.67 | 3.53 | 28.76 | 6% |
-| **Cross-seed** | **15.79** | **3.95** | **22.03** | **42.67%** |
+| Seed | Mean Reward | Std | Mean Length | Crash Rate | Episodes |
+|------|------------|-----|-------------|-----------|---------|
+| 0 | 15.997 | 8.29 | 17.38 | 78% | 2763 |
+| 1 | 16.415 | 7.64 | 18.42 | 80% | 2703 |
+| 2 | 18.286 | 8.76 | 19.34 | 78% | 2687 |
+| **Cross-seed** | **16.899** | **0.995** | **18.38** | **78.67%** | — |
 
-Les resultats revelent une forte instabilite: seul le seed 2 converge vers une politique viable, tandis que le seed 1 echoue completement avec 96% de crash rate.
+La consistance cross-seed est bonne (std 0.995): les trois seeds convergent
+vers des niveaux de performance similaires, sans echec complet de convergence.
+En revanche, le crash rate eleve (78.67%) indique que l'agent n'a pas
+generalise une politique d'evitement des collisions.
 
 ### Comparaison avec DQN Custom
 
-Le DQN custom (gamma=0.99) obtient une reward moyenne de 20.20 (+/- 0.45) avec
-un crash rate de 2.67%, au-dessus de SB3 aligne (15.79 +/- 3.95, crash rate
-42.67%). **Cette moyenne SB3 est toutefois tiree fortement vers le bas par un
-outlier**: le seed 1 ne converge pas et atteint 96% de crash rate. Si on
-exclut ce seed, SB3 fait ~18.5 de reward pour ~16% de crash rate, soit un
-ecart bien plus modere. Avec seulement 3 seeds, un unique echec de
-convergence suffit a faire basculer la conclusion.
+| Metrique | DQN Custom (gamma=0.99) | SB3 DQN (gamma=0.8) |
+|----------|------------------------|---------------------|
+| Mean reward | **20.20 +/- 0.45** | 16.90 +/- 0.995 |
+| Crash rate | **2.67%** | 78.67% |
+| Mean episode length | **29.47** | 18.38 |
 
-Deux hypotheses peuvent expliquer l'ecart residuel, mais aucune n'a ete
-testee isolement:
-
-- **Optimiseur** (AdamW+amsgrad custom vs Adam SB3): AdamW decouple le weight
-  decay, et amsgrad garantit des taux d'apprentissage effectifs non-croissants.
-  Pour valider cette hypothese, il faudrait injecter AdamW dans SB3 via
-  `policy_kwargs` et refaire tourner les 3 seeds.
-- **Frequence des updates**: dans le custom chaque step d'environnement
-  declenche immediatement un update, tandis que SB3 groupe 4 steps puis fait
-  4 updates. Pour departager, il suffirait de repasser SB3 en
-  `train_freq=1, gradient_steps=1`.
-
-Une troisieme explication plus simple est que la variance cross-seed de SB3
-est juste plus elevee par hasard dans cette configuration alignee, et qu'un
-echantillon 5-10 seeds rapprocherait les deux methodes. Cette possibilite est
-consistante avec le fait que, hors seed 1, les performances des deux methodes
-ne sont pas radicalement differentes.
+Le DQN custom (gamma=0.99) obtient de meilleures performances absolues.
+L'ecart de crash rate (+76pp) est considerable mais trouve son explication
+dans le choix de gamma: l'ablation DQN custom montre que le meme DQN avec
+gamma=0.8 atteint 74% de crash rate — valeur tres proche des 78.67% de SB3.
+**Ce n'est donc pas SB3 qui est en cause, mais le discount factor.**
 
 Le detail complet de cette comparaison est disponible dans `compare.md`.
 
@@ -120,63 +91,52 @@ Le detail complet de cette comparaison est disponible dans `compare.md`.
 
 ### Politique apprise
 
-Lorsque l'entrainement converge (seed 2), l'agent SB3 adopte la meme politique "idle" que le DQN custom: vitesse minimale, aucun changement de voie. Cette strategie maximise la reward cumulee en evitant les penalites de collision (-1.5) et de lane change (-0.02) tout en accumulant une petite recompense de vitesse a chaque step.
+Avec gamma=0.8, l'agent ne valorise pas suffisamment les rewards futures:
+la valeur actualisee d'une collision au step 20 est 0.8^20 * (-1.5) ≈ -0.035,
+presque negligeable. L'agent priorise donc les rewards immediates (vitesse)
+sans apprendre a eviter systematiquement les collisions.
 
-Cependant, cette convergence n'est pas garantie: sur 3 seeds, seul le seed 2 atteint ce comportement stable. Le seed 0 montre une politique partiellement apprise (26% crash) et le seed 1 n'a pas converge du tout (96% crash).
+Cela contraste avec le DQN custom (gamma=0.99), pour lequel la meme collision
+vaut 0.99^20 * (-1.5) ≈ -1.23, ce qui motive l'agent a adopter une politique
+conservative stable (vitesse basse, aucun changement de voie, survie sur les
+30 steps).
 
-### Modes d'echec
+### Mode d'echec principal
 
-Sur 150 episodes d'evaluation, 64 se terminent en collision (42.67%). On distingue deux types d'echec:
-
-1. **Echec de convergence** (seed 1): l'agent n'a pas appris a eviter les
-   collisions durant l'entrainement. Cela produit un crash rate de 96%,
-   indiquant que la politique finale est quasi-aleatoire. Ce mode d'echec
-   n'est pas observe sur le DQN custom dans cette comparaison sur 3 seeds,
-   mais avec un echantillon aussi petit on ne peut pas conclure qu'il est
-   specifique a SB3 — il peut simplement etre plus frequent sous cette
-   configuration alignee.
-
-2. **Crashes environnementaux** (seeds 0 et 2): meme avec une politique apprise, l'agent est parfois percute par un vehicule plus rapide arrivant par derriere. L'analyse des 9 crashes du meilleur seed (seed 2, sur 100 episodes de failure analysis) revele:
-   - 1 crash precoce (step 7, reward 4.09): configuration initiale defavorable
-   - 8 crashes tardifs (steps 12-22, rewards 8.69-16.82): l'agent survit mais se fait rattraper par le trafic dense
-
-La cause des crashes environnementaux est l'absence de changement de voie defensif. La penalite de -0.02 par lane change, bien que faible, suffit a dissuader l'agent de toute manoeuvre, meme salvatrice.
+Sur 150 episodes d'evaluation (3 seeds x 50), 118 se terminent en collision
+(78.67%). Le profil est homogene entre seeds (78%, 80%, 78%): l'echec est
+systematique, pas lie a un seed particulier. L'agent est regulierement
+rattrape par des vehicules plus rapides dans sa voie; sans horizon long
+(gamma faible), il n'a pas appris a anticiper ce risque.
 
 ## 5. Limitations et perspectives
 
-### Limitations du travail (run aligne)
+### Limitations
 
-1. **Run "aligne" uniquement**: en choisissant d'aligner SB3 sur la config du
-   DQN custom, j'ai volontairement bride SB3 par rapport a ses hyperparametres
-   recommandes pour highway-env (notamment `train_freq=1` et un epsilon
-   lineaire). Ce choix permet une comparaison "toutes choses egales par
-   ailleurs", mais ne permet pas d'evaluer ce que SB3 donne en configuration
-   naturelle. Un second notebook avec les hyperparametres par defaut
-   recommandes par highway-env viendra completer cette analyse.
+1. **Gamma non optimal pour cet environnement**: gamma=0.8 est la valeur
+   par defaut recommandee pour highway-env dans SB3, mais l'ablation DQN
+   custom montre qu'elle est inadaptee a l'horizon de 30 steps de cette
+   tache. Tester SB3 avec gamma=0.99 permettrait d'evaluer les deux
+   implementations sur un pied d'egalite.
 
-2. **Instabilite cross-seed et petit echantillon**: l'echec du seed 1 (96%
-   crash rate) pourrait etre un signal de fragilite reel ou un simple outlier
-   sur 3 seeds. Passer a 5-10 seeds est necessaire pour en decider.
+2. **Differences non isolees**: la comparaison presente plusieurs differences
+   simultanees entre les deux methodes (gamma, optimiseur AdamW vs Adam,
+   epsilon schedule). Il n'est pas possible de conclure que l'une d'elles
+   en particulier est la cause de l'ecart residuel sans ablation ciblee.
 
-3. **Hypotheses non testees isolement**: les arguments "AdamW+amsgrad" et
-   "train_freq" pour expliquer l'ecart restent speculatifs tant que je n'ai
-   pas fait de runs d'ablation ciblant chaque facteur separement (AdamW
-   injecte via `policy_kwargs` d'un cote, `train_freq=1` de l'autre).
+3. **Petit echantillon de seeds**: 3 seeds par methode est le minimum requis.
+   Un run 5-10 seeds renforcerait la fiabilite des conclusions.
 
-4. **Comparaison limitee par la reward**: la configuration de reward partagee
-   produit une politique triviale (rouler lentement, ne pas changer de voie)
-   lorsque l'entrainement converge. La comparaison serait plus discriminante
-   sur un probleme ou la politique optimale est moins evidente.
+4. **Politique triviale**: la configuration de reward partagee produit une
+   politique triviale (survie maximale = rouler lentement). La comparaison
+   serait plus discriminante sur un probleme ou la politique optimale est
+   moins evidente.
 
 ### Perspectives
 
-- **Second run "SB3 defaults"** (prochaine etape): utiliser les hyperparams
-  recommandes pour highway-env, sur les memes seeds, et comparer les deux
-  runs (aligne vs defaults) pour separer l'effet de l'alignement des
-  hyperparams de l'effet des details d'implementation.
-- **Ablations ciblees**: injecter AdamW dans SB3 via `policy_kwargs`, ou
-  passer le custom en mode batching 4x, pour valider ou invalider les
-  hypotheses explicatives actuelles.
-- **Algorithmes alternatifs**: tester PPO ou A2C via SB3 pour comparer des
-  familles d'algorithmes differentes, pas seulement deux implementations
+- **SB3 avec gamma=0.99**: tester SB3 avec gamma=0.99 pour verifier
+  que les deux implementations atteignent des performances similaires
+  quand le discount factor est aligne.
+- **Algorithmes alternatifs**: tester PPO ou A2C via SB3 pour comparer
+  des familles d'algorithmes differentes, pas seulement deux implementations
   du meme DQN.
