@@ -212,3 +212,4 @@ checkpoints/*/*.pt
 .claude/
 
 report/
+#checkpoints/*/*.pt
