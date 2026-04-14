@@ -1,0 +1,10 @@
+{
+  "seed": 0,
+  "mean_reward": 11.364037105758205,
+  "std_reward": 6.465161510563279,
+  "mean_length": 13.74,
+  "std_length": 7.331258209801065,
+  "crash_rate": 0.94,
+  "best_checkpoint": "real_checkpoints_ext2/cnn_ddqn/run_20260413-122718/seed_0/best.pt",
+  "param_count": 1686693
+}

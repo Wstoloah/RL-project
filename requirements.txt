@@ -3,5 +3,5 @@ highway-env
 torch
 matplotlib
 numpy
-"gymnasium[other]"
+gymnasium[other]
 stable-baselines3
